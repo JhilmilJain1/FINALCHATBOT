@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>PDF Chatbot</title>
+    <script type="module">
+      import { LitElement, html, css } from 'https://cdn.skypack.dev/lit';
+
+      class PdfChatbotApp extends LitElement {
+        static properties = {
+          sessionId: { type: String },
+          messages: { type: Array },
+          question: { type: String },
+          socket: { type: Object },
+        };
+
+        static styles = css`
+          :host {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            background: linear-gradient(135deg, #f0f4ff, #dce5ff);
+            font-family: 'Segoe UI', sans-serif;
+          }
+
+          .chat-container {
+            background: #fff;
+            border-radius: 16px;
+            width: 100%;
+            max-width: 600px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            height: 90vh;
+          }
+
+          header {
+            background-color: #3f51b5;
+            color: white;
+            padding: 1rem;
+            text-align: center;
+            font-size: 1.4rem;
+            font-weight: bold;
+          }
+
+          .messages {
+            flex: 1;
+            overflow-y: auto;
+            padding: 1rem;
+            background-color: #f9f9fb;
+          }
+
+          .message {
+            max-width: 75%;
+            padding: 10px 14px;
+            margin-bottom: 10px;
+            border-radius: 20px;
+            font-size: 14px;
+            line-height: 1.4;
+            word-wrap: break-word;
+            white-space: pre-line;
+          }
+
+          .user {
+            align-self: flex-end;
+            background-color: #d1e7dd;
+            color: #155724;
+            border-bottom-right-radius: 4px;
+          }
+
+          .bot {
+            align-self: flex-start;
+            background-color: #e2e3e5;
+            color: #383d41;
+            border-bottom-left-radius: 4px;
+          }
+
+          .input-area {
+            display: flex;
+            padding: 1rem;
+            border-top: 1px solid #ddd;
+            background: #fff;
+          }
+
+          textarea {
+            flex: 1;
+            padding: 0.75rem;
+            border-radius: 12px;
+            border: 1px solid #ccc;
+            font-size: 14px;
+            resize: none;
+            height: 48px;
+          }
+
+          button {
+            margin-left: 11px;
+            background: #3f51b5;
+            color: white;
+            border: none;
+            border-radius: 12px;
+            padding: 0 20px;
+            cursor: pointer;
+            transition: background 0.3s ease;
+          }
+
+          button:hover {
+            background: #2c3e90;
+          }
+
+          .upload-section {
+            padding: 1rem;
+            background: #f1f3f5;
+            text-align: center;
+          }
+
+          .upload-section input[type="file"] {
+            display: inline-block;
+            margin-top: 5px;
+          }
+
+          .loader {
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #3f51b5;
+            border-radius: 50%;
+            width: 16px;
+            height: 16px;
+            animation: spin 1s linear infinite;
+            display: inline-block;
+            margin-left: 10px;
+          }
+
+          @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+          }
+        `;
+
+        constructor() {
+          super();
+          this.sessionId = '';
+          this.messages = [];
+          this.question = '';
+          this.socket = null;
+          this.loading = false;
+        }
+
+        async connectedCallback() {
+          super.connectedCallback();
+          const res = await fetch('http://localhost:8000/get_session');
+          const data = await res.json();
+          this.sessionId = data.session_id;
+          this.connectWebSocket();
+        }
+
+        connectWebSocket() {
+          this.socket = new WebSocket(`ws://localhost:8000/ws/${this.sessionId}`);
+          this.socket.onmessage = (event) => {
+            this.messages = [...this.messages, { role: 'bot', text: event.data }];
+            this.loading = false;
+          };
+        }
+
+        async uploadPDF(e) {
+          const file = e.target.files[0];
+          if (!file) return;
+
+          const formData = new FormData();
+          formData.append('file', file);
+
+          const res = await fetch('http://localhost:8000/upload_pdf', {
+            method: 'POST',
+            body: formData,
+          });
+          const data = await res.json();
+          alert(data.message || data.error);
+        }
+
+        async sendQuestion() {
+          if (!this.question.trim()) return;
+          this.messages = [...this.messages, { role: 'user', text: this.question }];
+          this.loading = true;
+          this.socket.send(this.question);
+          this.question = '';
+        }
+
+        render() {
+          return html`
+            <div class="chat-container">
+              <header>📄 PDF Chatbot</header>
+
+              <div class="upload-section">
+                <label><strong>Upload PDF</strong></label>
+                <input type="file" accept="application/pdf" @change=${this.uploadPDF} />
+              </div>
+
+              <div class="messages">
+                ${this.messages.map(
+                  (msg) => html`
+                    <div class="message ${msg.role}">${msg.text}</div>
+                  `
+                )}
+              </div>
+
+              <div class="input-area">
+                <textarea
+                  .value=${this.question}
+                  placeholder="Ask a question..."
+                  @input=${(e) => (this.question = e.target.value)}
+                  @keypress=${(e) => e.key === 'Enter' && !e.shiftKey && (e.preventDefault(), this.sendQuestion())}
+                ></textarea>
+                <button @click=${this.sendQuestion}>
+                  Send
+                  ${this.loading ? html`<span class="loader"></span>` : ''}
+                </button>
+              </div>
+            </div>
+          `;
+        }
+      }
+
+      customElements.define('pdf-chatbot-app', PdfChatbotApp);
+    </script>
+  </head>
+  <body>
+    <pdf-chatbot-app></pdf-chatbot-app>
+  </body>
+</html>
